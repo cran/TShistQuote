@@ -16,7 +16,7 @@ histQuote <- function() {
   }
 
 # require("DBI") for this
-setClass("TShistQuoteConnection", contains=c("DBIConnection","TSdb"),
+setClass("TShistQuoteConnection", contains=c("DBIConnection", "conType","TSdb"),
    representation(user="character", password="character", host="character") )
 
 ####### some kludges to make this look like DBI. ######
@@ -44,7 +44,7 @@ setMethod("TSconnect",   signature(drv="histQuoteDriver", dbname="character"),
    else 
       warning(dbname, "not recognized. Connection assumed working, but not tested.")
    
-   new("TShistQuoteConnection", dbname=dbname, hasVintages=FALSE, hasPanels=FALSE,
+   new("TShistQuoteConnection", drv="histQuote", dbname=dbname, hasVintages=FALSE, hasPanels=FALSE,
     	  user = user, password = password, host = host ) 
    } )
 
@@ -83,7 +83,7 @@ setMethod("TSdates",  signature(serIDs="character", con="TShistQuoteConnection")
 setMethod("TSget",     signature(serIDs="character", con="TShistQuoteConnection"),
    definition= function(serIDs, con, TSrepresentation=options()$TSrepresentation,
        tf=NULL, start=tfstart(tf), end=tfend(tf),
-       names=serIDs, quote = "Close", quiet=TRUE, ...){ 
+       names=serIDs, quote = "Close", quiet=TRUE, repeat.try=3, ...){ 
     if (is.null(TSrepresentation)) TSrepresentation <- "zoo"
     mat <- desc <- NULL
     # recycle serIDs and quote to matching lengths
@@ -101,11 +101,15 @@ setMethod("TSget",     signature(serIDs="character", con="TShistQuoteConnection"
             else if (is.null(end)  )   append(args, list(start=start, ...))
             else                       append(args, list(start=start, end=end, ...) )
     for (i in seq(length(serIDs))) {
-       r <- do.call("get.hist.quote",
-          if (con@dbname == "yahoo")       
-	      append(list(instrument=serIDs[i], quote=quote[i]), args)
-          else if (con@dbname == "oanda") 
-	      append(list(instrument=serIDs[i]),  args) )
+       argsi <- if (con@dbname == "yahoo")       
+	        append(list(instrument=serIDs[i], quote=quote[i]), args)
+              else if (con@dbname == "oanda") 
+	        append(list(instrument=serIDs[i]),  args)
+       for (rpt in seq(repeat.try)) {
+           r <- try(do.call("get.hist.quote", argsi))
+	   if (!inherits(r , "try-error")) break
+	   }
+       if (inherits(r , "try-error")) stop(r)
        if (is.character(r)) stop(r)
        TSrefperiod(r) <- quote[i]
        mat <- tbind(mat, r)
